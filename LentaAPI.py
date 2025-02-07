@@ -97,7 +97,7 @@ class LentaAPI:
             self.get_session_token()
 
     def get_catalog_items(self, category_id: int):
-        """Получение 100 товаров в наличии из каталога по ID категории
+        """Получение товаров в наличии из каталога по ID категории
         формат ответа:
         {
             "categories": ...,
@@ -172,7 +172,7 @@ class LentaAPI:
                 "type": "popular",
                 "order": "desc"
             },
-            "limit": 100,
+            "limit": 999999,
             "offset": 0
         }
         
@@ -280,4 +280,4 @@ class LentaAPI:
 
 if __name__ == "__main__":
     api = LentaAPI()
-    print(api.get_stores())
+    print(api.get_categories())

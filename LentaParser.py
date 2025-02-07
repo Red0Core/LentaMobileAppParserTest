@@ -1,8 +1,9 @@
 import json
+import pprint
 import time
-from timeit import repeat
 from requests import HTTPError
 from LentaAPI import LentaAPI
+import random
 
 class LentaParser:
     """Класс для автоматического парсинга товаров в наличии из приложения Лента в МСК и Питере, где более 100 товаров"""
@@ -43,94 +44,86 @@ class LentaParser:
                 attempt += 1
                 time.sleep(backoff_factor ** attempt)
 
-    def _parse_products(self, category_id):
-        """Получает товары из категории и фильтрует только в наличии"""
-        print(f"Парсинг товаров из категории {category_id}...")
-        data = self.api.get_catalog_items(category_id)
-        products = []
-
-        for item in data["items"]:
-            if item["features"]["isBlockedForSale"] and item["count"] > 0:
-                continue  # Пропускаем недоступные товары
-
-            products.append({
-                "id": item["id"],
-                "name": item["name"],
-                "brand": self._get_brand_of_product(item["id"]),
-                "regular_price": item["prices"]["costRegular"] / 100,
-                "promo_price": item["prices"]["cost"] / 100
-            })
-            print(f"🛒 {item['name']} ({item['id']}) добавлен в список")
-
-        print(f"✅ Найдено {len(products)} товаров в наличии!")
-        return products
-
     def run(self):
         """Основная логика парсинга"""
         self._get_target_stores()
 
-        products = []
+        # Получаем категории первого уровня в МСК
         moscow_stores = self.city_stores.get("Москва", [])
+        moscow_store = random.choice(moscow_stores)
+        print(f"\n📍 Москва, магазин ID: {moscow_store}")
+        self.api.set_delivery(moscow_store)
+        self.api.set_store(moscow_store)
+        moscow_categories_level_1 = {
+            x['slug']: x['id']
+            for x in self.api.get_categories()
+            if x['level'] == 1
+        }
+        
+        # Получаем категории первого уровня в Питере
         piter_stores = self.city_stores.get("Санкт-Петербург", [])
+        piter_store = random.choice(piter_stores)
+        print(f"\n📍 Питер, магазин ID: {piter_store}")
+        self.api.set_delivery(piter_store)
+        self.api.set_store(piter_store)
+        piter_categories_level_1 = {
+            x['slug']: x['id']
+            for x in self.api.get_categories()
+            if x['level'] == 1
+        }
 
-        for moscow_store in moscow_stores:
-            print(f"\n📍 Москва, магазин ID: {moscow_store}")
+        # Поиск общих категорий (навсякий случай)
+        common_categories = set(moscow_categories_level_1.keys()) & set(piter_categories_level_1.keys())
+        for category_slug in common_categories:
+            print(f"\n🔍 Поиск общих товаров в категории {category_slug}")
+
+            # Получаем товары из категории в мск
             self.api.set_delivery(moscow_store)
             self.api.set_store(moscow_store)
-            time.sleep(2)
+            moscow_items = self.api.get_catalog_items(moscow_categories_level_1[category_slug])
+            print("Делаем задержку на 5 секунд")
+            time.sleep(5)
 
-            moscow_items = []
-            categories = self.api.get_categories()
-            category_moscow_id = None
-            for category in categories:
-                print(f"Проверяю категорию: {category['name']}...")
-                items = self.api.get_catalog_items(category["id"])
-                if items and items["total"] >= 100:
-                    print(f"✅ Найдено {items['total']} товаров в категории {category['name']}!")
-                    category_moscow_id = category["id"]
-                    moscow_items = items
-
-                    # Теперь ищем в питере нужную нам категорию с товарами
-                    for piter_store in piter_stores:
-                        print(f"\n📍 Питер, магазин ID: {piter_store}")
-                        self.api.set_delivery(piter_store)
-                        self.api.set_store(piter_store)
-                        time.sleep(2)
-
-                        repeat_items = []
-                        piter_items = self.api.get_catalog_items(category_moscow_id)
-                        if piter_items and piter_items['total'] > 100:
-                            print(f"✅ Найдено {piter_items['total']} товаров в категории {category['name']} в Питере!")
-                            
-                            # Теперь ищем совпадения
-                            for moscow_item in moscow_items['items']:
-                                for piter_item in piter_items['items']:
-                                    if moscow_item['id'] == piter_item['id'] \
-                                        and moscow_item['count'] > 0 \
-                                        and piter_item['count'] > 0:
-
-                                        repeat_items.append(moscow_item)
-
-                        if len(repeat_items) >= 100:
-                            print(f"✅ Найдено {len(repeat_items)} товаров в наличии в обоих городах!")
-
-                            # Добавляем товары в выходной список
-                            for item in repeat_items:
-                                products.append({
-                                    "id": item["id"],
-                                    "name": item["name"],
-                                    "brand": self._get_brand_of_product(item["id"]),
-                                    "regular_price": item["prices"]["costRegular"] / 100,
-                                    "promo_price": item["prices"]["cost"] / 100
-                                })
-                            print(f"✅ Добавлено {len(repeat_items)} товаров в список!")
-                            return products
-                        else:
-                            print(f"❌ Не найдено товаров в обоих городах больше 100, а именно {len(repeat_items)}")
-                            
-            if category_moscow_id is None:
-                print(f"❌ Не найдено подходящей категории с более чем 100 товарами в Москве, магазин ID: {moscow_store}")
+            # Получаем товары из категории в питере
+            self.api.set_delivery(piter_store)
+            self.api.set_store(piter_store)
+            piter_items = self.api.get_catalog_items(piter_categories_level_1[category_slug])
+            
+            # Сравниваем товары
+            if piter_items['total'] < 100 or moscow_items['total'] < 100:
+                print("❌ Нехватка товаров для сравнения в категории {category_slug}")
                 continue
+
+            # Находим общие товары по id
+            moscow_ids = {item["id"]: item for item in moscow_items['items'] if item["count"] > 0 and not item["features"]["isBlockedForSale"]}
+            piter_ids = {item["id"]: item for item in piter_items['items'] if item["count"] > 0 and not item["features"]["isBlockedForSale"]}
+            common_products = [
+                {
+                    "id": item["id"],
+                    "name": item["name"],
+                    "regular_price": item["prices"]["costRegular"] / 100,
+                    "promo_price": item["prices"]["cost"] / 100
+                }
+                for item_id, item in moscow_ids.items()
+                if item_id in piter_ids
+            ]
+            
+            # Проверяем результаты
+            if len(common_products) < 100:
+                print("❌ Нехватка общих товаров в категории {category_slug}")
+                continue
+
+            print(f"✅ Найдено {len(common_products)} общих товаров в категории {category_slug}")
+            
+            # Добавялем бренды к товарам
+            for common_products_item in common_products:
+                common_products_item["brand"] = self._get_brand_of_product(common_products_item["id"])
+                print(f"🛒 {common_products_item['name']} ({common_products_item['id']}) добавлен в список" )
+
+            return common_products
+        
+        print("❌ Не найдено общих категорий, где больше 100 общих товаров в наличии в Москве и Питере")
+        return []
 
     def save_results(self, data):
         """Сохраняет результаты в JSON"""
