@@ -1,9 +1,10 @@
 import json
-import pprint
 import time
-from requests import HTTPError
-from LentaAPI import LentaAPI
 import random
+from requests import HTTPError
+
+from LentaAPI import LentaAPI
+from logger import logger
 
 class LentaParser:
     """Класс для автоматического парсинга товаров в наличии из приложения Лента в МСК и Питере, где более 100 товаров"""
@@ -20,7 +21,7 @@ class LentaParser:
         for store in stores["items"]:
             for city in self.TARGET_CITIES:
                 if city in store["addressFull"] and store['marketType'] == "HM": # Проверка на город и Гипермаркет(больше товаров)
-                    self.city_stores[city].append(store["id"])
+                    self.city_stores[city].append((store["id"], store["addressFull"]))
                     break
         
         if not self.city_stores:
@@ -39,19 +40,23 @@ class LentaParser:
                 return "Без бренда"
             except HTTPError as e:
                 print(f"❌ Ошибка HTTP: {e}")
+                logger.error(f"❌ Ошибка HTTP: {e.response.status_code} - {e.response.text}")
                 if e.response.status_code == 429:
                     print(f"⚠️ Превышен лимит запросов, делаем паузу на {backoff_factor ** attempt} секунд")
                 attempt += 1
                 time.sleep(backoff_factor ** attempt)
+
+        raise TimeoutError(f"❌ Не удалось получить бренд товара за {max_retries} попыток."
+                           " Лучше перезапустить программу и подождать некоторое время")
 
     def run(self):
         """Основная логика парсинга"""
         self._get_target_stores()
 
         # Получаем категории первого уровня в МСК
-        moscow_stores = self.city_stores.get("Москва", [])
-        moscow_store = random.choice(moscow_stores)
-        print(f"\n📍 Москва, магазин ID: {moscow_store}")
+        moscow_stores = self.city_stores["Москва"]
+        moscow_store, moscow_store_location = random.choice(moscow_stores)
+        print(f"📍 Москва, магазин ID: {moscow_store}, адрес: {moscow_store_location}")
         self.api.set_delivery(moscow_store)
         self.api.set_store(moscow_store)
         moscow_categories_level_1 = {
@@ -61,9 +66,9 @@ class LentaParser:
         }
         
         # Получаем категории первого уровня в Питере
-        piter_stores = self.city_stores.get("Санкт-Петербург", [])
-        piter_store = random.choice(piter_stores)
-        print(f"\n📍 Питер, магазин ID: {piter_store}")
+        piter_stores = self.city_stores["Санкт-Петербург"]
+        piter_store, piter_store_location = random.choice(piter_stores)
+        print(f"📍 Питер, магазин ID: {piter_store}, адрес: {piter_store_location}")
         self.api.set_delivery(piter_store)
         self.api.set_store(piter_store)
         piter_categories_level_1 = {
@@ -91,7 +96,7 @@ class LentaParser:
             
             # Сравниваем товары
             if piter_items['total'] < 100 or moscow_items['total'] < 100:
-                print("❌ Нехватка товаров для сравнения в категории {category_slug}")
+                print(f"❌ Нехватка товаров для сравнения в категории {category_slug}")
                 continue
 
             # Находим общие товары по id
@@ -110,7 +115,7 @@ class LentaParser:
             
             # Проверяем результаты
             if len(common_products) < 100:
-                print("❌ Нехватка общих товаров в категории {category_slug}")
+                print(f"❌ Нехватка общих товаров в категории {category_slug}")
                 continue
 
             print(f"✅ Найдено {len(common_products)} общих товаров в категории {category_slug}")

@@ -4,6 +4,7 @@ import json
 import time
 import hashlib
 from datetime import datetime, timezone
+from logger import logger
 
 def get_localtime():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -77,14 +78,14 @@ class LentaAPI:
         self.headers["SessionToken"] = None
 
         response = requests.get(URL, headers=self.headers, params=params)
-        print(f"Request URL: {response.request.url}")
+        logger.info(f"📡 Отправка запроса на {URL} с параметрами: {json.dumps(payload, ensure_ascii=False)}")
 
         if response.status_code == 200:
             data = response.json()
             self.session_token = data.get("Head", {}).get("SessionToken")
             if self.session_token:
                 self.headers["SessionToken"] = self.session_token
-                print(f"✅ Новый SessionToken: {self.session_token}")
+                logger.info(f"✅ Новый SessionToken: {self.session_token}")
                 return self.session_token
             else:
                 raise ValueError("SessionToken не найден в ответе API")
@@ -179,7 +180,7 @@ class LentaAPI:
         self._update_qrator_token(URL)
         response = requests.post(URL, headers=self.headers, data=json.dumps(payload))
         if response.ok:
-            print(f"Response: {response.text}")
+            logger.info(f"✅ Успешный ответ ({response.status_code}): {response.text}")
             return response.json() if response.status_code == 200 else None
         else:
             raise requests.HTTPError(f"Ошибка API: {response.status_code}, {response.text}")
@@ -192,7 +193,7 @@ class LentaAPI:
         self._update_qrator_token(URL)
         response = requests.post(URL, headers=self.headers, json={})
         if response.ok:
-            print(f"Response: {response.text}")
+            logger.info(f"✅ Успешный ответ ({response.status_code}): {response.text}")
             return response.json() if response.status_code == 200 else None
         else:
             raise requests.HTTPError(f"Ошибка API: {response.status_code}, {response.text}")
@@ -215,7 +216,7 @@ class LentaAPI:
         self._update_qrator_token(URL)
         response = requests.post(URL, headers=self.headers, data=json.dumps(payload))
         if response.ok:
-            print(f"Response: {response.text}")
+            logger.info(f"✅ Успешный ответ ({response.status_code}): {response.text}")
         else:
             raise requests.HTTPError(f"Ошибка API: {response.status_code}, {response.text}")
 
@@ -235,8 +236,8 @@ class LentaAPI:
         self._update_qrator_token(URL)
         response = requests.post(URL, headers=self.headers, data=json.dumps(payload))
         if response.ok:
-            print(f"Response: {response.text}")
-            print(f"Установлен магазин по адресу: {response.json()['result']['addressFull']}")
+            logger.info(f"✅ Успешный ответ ({response.status_code}): {response.text}")
+            logger.info(f"🏪 Установлен магазин по адресу: {response.json()['result']['addressFull']}")
         else:
             raise requests.HTTPError(f"Ошибка API: {response.status_code}, {response.text}")
 
